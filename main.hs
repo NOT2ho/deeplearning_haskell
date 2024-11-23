@@ -1,5 +1,6 @@
 module Main where
 import Data.Bits
+import Data.List (zipWith5, zipWith4)
 
 type Mat = [Vec]
 type Vec = [Float]
@@ -131,8 +132,59 @@ sigmoid a = 1 / (1 + exp (-a))
 mlp :: Vec -> Mat -> Vec -> (Float -> Float) -> Vec
 mlp x w b act = map act ((w `matVecMul` x) `vecAdd` b)
 
-dnn :: Vec -> [Mat] -> [Vec] -> (Float -> Float) -> Vec
-dnn x (w:ws) (b:bs) act = dnn (mlp x w b act) ws bs act
-dnn x [] [] _ = x
+dnn :: Vec -> [Mat] -> [Vec] -> (Float -> Float) -> [Vec]
+dnn x [w] [b] act = [softmax $ mlp x w b act]
+dnn x (w:ws) (b:bs) act = dnn (mlp x w b act) ws bs act ++ dnn x ws bs act
 
+softmax :: Vec -> Vec
+softmax vec = map ((sum $ map exp vec) /) vec
 
+calcGrad :: Vec -> Vec -> Vec -> Float
+calcGrad (x:xs)  (y:ys) (yh:at)= (1-yh) * (yh - y) * x * yh + calcGrad xs at ys
+calcGrad _ _ _ = 0
+
+cut :: [[a]] -> ([a], [[a]])
+cut a = (map head a , map tail a)
+
+-- updateWeight :: [Vec] -> [Vec] -> [Mat] -> Mat -> Mat
+-- updateWeight (x:xs) (y:ys) yhats (w:ws) = 
+--     map (calcGrad x y) (map head yhats) ++ updateWeight xs ys (map tail yhats) ws
+
+d :: Float -> Float -> Float -> Float
+d x yh y= x * yh * (1-yh) * (yh - y)
+
+vecD :: Float -> Vec -> Vec -> Vec
+vecD x= zipWith (d x)
+
+matD :: Vec -> Vec -> Vec -> Mat
+matD xs yh y = map (vecD `flip` yh `flip` y) xs
+
+ultimateD :: Mat -> Mat -> Mat -> Mat
+ultimateD xss yhs ys = foldl1 matAdd (zipWith3 matD xss yhs ys)
+
+singlelayerUpdate :: Float -> Mat -> Mat -> Mat -> Mat -> Mat
+singlelayerUpdate lr w xss yhs ys = w `matSub` ( ultimateD xss yhs ys `matMulC` lr)
+
+-------------very Tedious
+-- multilayerUpdate :: Float -> [Mat] -> [Mat] -> Mat -> [Mat] -> Mat -> [Mat]
+-- multilayerUpdate lr [w] [] xss [yh] ys = [singlelayerUpdate lr w xss yh ys]
+-- multilayerUpdate lr flipedw [] xss (y:h:s) ys = multilayerUpdate lr (tail flipedw) [singlelayerUpdate lr (head flipedw) y h ys] xss (y:h:s) ys
+-- multilayerUpdate lr flipedw new xss yhs ys = do it yourself
+
+kLoop :: Vec -> Vec -> Vec -> Float
+kLoop (w:ws) (yh:at) (y:ys) = d w yh y + kLoop ws at ys
+kLoop _ _ _ = 0
+
+jLoop :: Mat ->Float -> Vec ->  Vec -> Vec -> Vec
+jLoop (w:ws) x (yh1:at1)  yh2 y = x * yh1 * (1 - yh1) * kLoop w yh2 y : jLoop  ws  x at1 yh2 y
+jLoop  _ _ _ _ _ = []
+
+iLoop :: Mat ->  [Float] -> Vec -> Vec -> Vec -> [Vec]
+iLoop w x yh1 yh2 y= map (\ x -> jLoop w x yh1 yh2 y) x
+
+nLoop :: Mat -> Mat -> Mat -> Mat -> [Vec] -> Mat
+nLoop xss yh1s w yh2s ys = foldl1 matAdd (zipWith4 (iLoop w) xss yh1s yh2s ys)
+
+hiddenUpdate :: Float -> Mat -> Mat -> Mat -> Mat -> Mat -> Mat -> [Mat]
+hiddenUpdate lr w1 w2 xss yhs1 yhs2 ys = w1 `matSub` nLoop xss yhs1 w2 yhs2 ys `matMulC` lr : [singlelayerUpdate lr w2 xss yhs2 ys]
+--sosleepy
