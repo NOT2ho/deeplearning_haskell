@@ -2,6 +2,7 @@ module Main where
 import Data.Bits
 import Data.List (zipWith5, zipWith4)
 import Data.Bifunctor
+import Debug.Trace
 import Distribution.Compat.Prelude (readMaybe)
 
 
@@ -29,9 +30,9 @@ floater (s:trList) = case (readMaybe::String -> Maybe Float) s of
                     Nothing -> error "userfault"
 
 shaper :: [Float] -> [(Float, Vec)]
-shaper (f:fs) = (f, take 784 fs) : shaper (drop 784 fs)
+shaper (f:fs) = ("code : " ++ show f) `trace` (f, take 784 fs) : shaper (drop 784 fs)
 shaper fs = []
-
+--todo: this may wrong
 
 strassen :: Mat -> Mat -> Mat
 strassen as_ bs_ =
@@ -154,7 +155,7 @@ sigmoid :: Float -> Float
 sigmoid a = 1 / (1 + exp (-a))
 
 mlp :: Vec -> Mat -> Vec -> (Float -> Float) -> Vec
-mlp x w b act = map act ((w `matVecMul` x) `vecAdd` b)
+mlp x w b act =  ("mlping.. : " ++ show ((w `matVecMul` x) `vecAdd` b))`trace` map act ((w `matVecMul` x) `vecAdd` b)
 
 dnn :: Vec -> [Mat] -> [Vec] -> (Float -> Float) -> [Vec]
 dnn x [w] [b] act = [softmax $ mlp x w b act]
@@ -175,7 +176,9 @@ cut a = (map head a , map tail a)
 --     map (calcGrad x y) (map head yhats) ++ updateWeight xs ys (map tail yhats) ws
 
 d :: Float -> Float -> Float -> Float
-d x yh y= x * yh * (1-yh) * (yh - y)
+d x yh y=x * yh * (1-yh) * (yh - y)
+
+
 
 vecD :: Float -> Vec -> Vec -> Vec
 vecD x= zipWith (d x)
@@ -217,14 +220,16 @@ hiddenFoward :: [Vec] -> Mat -> Mat -> Vec-> Vec -> (Float -> Float) -> ([Vec], 
 hiddenFoward (x:xs) w1 w2 b1 b2 act = Data.Bifunctor.bimap
   (softmax (mlp x w1 b1 id) :) (mlp x w2 b2 act :)
   (hiddenFoward xs w1 w2 b1 b2 act)
+hiddenFoward _ _ _ _ _ _ = ([],[])
 
 hidden :: Float -> [Vec] -> Mat -> Mat -> Vec -> Vec -> (Float -> Float) -> [Vec] ->  [Vec]
 hidden lr inputNode w1 w2 b1 b2 act outputNode =
-    let (yhat2 , yhat1) = hiddenFoward inputNode w1 w2 b1 b2 act in
+    let (yhat2 , yhat1) =  hiddenFoward inputNode w1 w2 b1 b2 act in
     let (updatedw1, updatedw2) = hiddenUpdate lr inputNode w1 w2 yhat1 yhat2 outputNode in
-    let (newyhat2, newyhat1) = hiddenFoward  (hidden lr yhat2 updatedw1 updatedw2 b1 b2 act outputNode) w1 w2 b1 b2 act in
+    let (newyhat2, newyhat1) = hiddenFoward yhat2 w1 w2 b1 b2 act in
     let (updatedw1', updatedw2') = hiddenUpdate lr newyhat2 updatedw1 updatedw2 newyhat1 newyhat2 outputNode in
-        hidden lr newyhat2 updatedw1' updatedw2' b1 b2 act outputNode
+        "called" `trace`
+        snd $ hiddenFoward newyhat2 updatedw1' updatedw2' b1 b2 act
 
 mnist :: IO ()
 mnist = do
@@ -232,15 +237,15 @@ mnist = do
     filepath <- getLine
     putStrLn "output node file"
     filepath2 <- getLine
-    file <- readFile filepath
-    file2 <- readFile filepath2
-    let inputNode = take 10 $ (shaper . floater . split) file
-    let outputNode = (shaper . floater . split) file
+    file <- readFile "dataset/mnist_train.csv"
+    file2 <- readFile "dataset/mnist_test.csv"
+    let inputNode = take 40 $ (shaper . floater . split) file
+    let outputNode = take 10 $  (shaper . floater . split) file2
     let w1 = randMatGen 2 784 100
     let w2 = randMatGen 4294 100 10
-    let b1 = drop 100 $ xorshift32inf 967
-    let b2 = drop 10 $ xorshift32inf 295
-    let lr = 0.2
+    let b1 = take 500 $ xorshift32inf 967
+    let b2 = take 10 $ xorshift32inf 295
+    let lr = 0.05
     let act = sigmoid
     print $ hidden lr (map snd inputNode) w1 w2 b1 b2 act (map snd outputNode)
 
