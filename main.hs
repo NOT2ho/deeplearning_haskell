@@ -1,13 +1,37 @@
 module Main where
 import Data.Bits
 import Data.List (zipWith5, zipWith4)
+import Data.Bifunctor
+import Distribution.Compat.Prelude (readMaybe)
+
 
 type Mat = [Vec]
 type Vec = [Float]
 
-main  :: IO()
-main = do
-    error "userfault"
+main  :: IO ()
+main = mnist
+
+fileIO :: IO ()
+fileIO = do
+    filepath <- getLine
+    file <- readFile filepath
+    print $ (shaper . floater . split) file
+    --just print matrix 
+
+split :: String -> [String]
+split str
+    | Prelude.null str = []
+    | otherwise = takeWhile (/=',') str : split (if Prelude.null (dropWhile (/=',') str) then [] else tail (dropWhile (/=',') str))
+
+floater :: [String] -> [Float]
+floater (s:trList) = case (readMaybe::String -> Maybe Float) s of
+                    Just num -> num : floater trList
+                    Nothing -> error "userfault"
+
+shaper :: [Float] -> [(Float, Vec)]
+shaper (f:fs) = (f, take 784 fs) : shaper (drop 784 fs)
+shaper fs = []
+
 
 strassen :: Mat -> Mat -> Mat
 strassen as_ bs_ =
@@ -175,7 +199,7 @@ kLoop :: Vec -> Vec -> Vec -> Float
 kLoop (w:ws) (yh:at) (y:ys) = d w yh y + kLoop ws at ys
 kLoop _ _ _ = 0
 
-jLoop :: Mat ->Float -> Vec ->  Vec -> Vec -> Vec
+jLoop :: Mat -> Float -> Vec ->  Vec -> Vec -> Vec
 jLoop (w:ws) x (yh1:at1)  yh2 y = x * yh1 * (1 - yh1) * kLoop w yh2 y : jLoop  ws  x at1 yh2 y
 jLoop  _ _ _ _ _ = []
 
@@ -185,6 +209,54 @@ iLoop w x yh1 yh2 y= map (\ x -> jLoop w x yh1 yh2 y) x
 nLoop :: Mat -> Mat -> Mat -> Mat -> [Vec] -> Mat
 nLoop xss yh1s w yh2s ys = foldl1 matAdd (zipWith4 (iLoop w) xss yh1s yh2s ys)
 
-hiddenUpdate :: Float -> Mat -> Mat -> Mat -> Mat -> Mat -> Mat -> [Mat]
-hiddenUpdate lr w1 w2 xss yhs1 yhs2 ys = w1 `matSub` nLoop xss yhs1 w2 yhs2 ys `matMulC` lr : [singlelayerUpdate lr w2 xss yhs2 ys]
+hiddenUpdate :: Float -> Mat -> Mat -> Mat -> Mat -> Mat -> Mat -> (Mat, Mat)
+hiddenUpdate lr w1 w2 xss yhs1 yhs2 ys = (w1 `matSub` nLoop xss yhs1 w2 yhs2 ys `matMulC` lr , singlelayerUpdate lr w2 xss yhs2 ys)
 --sosleepy
+
+hiddenFoward :: [Vec] -> Mat -> Mat -> Vec-> Vec -> (Float -> Float) -> ([Vec], [Vec])
+hiddenFoward (x:xs) w1 w2 b1 b2 act = Data.Bifunctor.bimap
+  (softmax (mlp x w1 b1 id) :) (mlp x w2 b2 act :)
+  (hiddenFoward xs w1 w2 b1 b2 act)
+
+hidden :: Float -> [Vec] -> Mat -> Mat -> Vec -> Vec -> (Float -> Float) -> [Vec] ->  [Vec]
+hidden lr inputNode w1 w2 b1 b2 act outputNode =
+    let (yhat2 , yhat1) = hiddenFoward inputNode w1 w2 b1 b2 act in
+    let (updatedw1, updatedw2) = hiddenUpdate lr inputNode w1 w2 yhat1 yhat2 outputNode in
+    let (newyhat2, newyhat1) = hiddenFoward  (hidden lr yhat2 updatedw1 updatedw2 b1 b2 act outputNode) w1 w2 b1 b2 act in
+    let (updatedw1', updatedw2') = hiddenUpdate lr newyhat2 updatedw1 updatedw2 newyhat1 newyhat2 outputNode in
+        hidden lr newyhat2 updatedw1' updatedw2' b1 b2 act outputNode
+
+mnist :: IO ()
+mnist = do
+    putStrLn "input node file"
+    filepath <- getLine
+    putStrLn "output node file"
+    filepath2 <- getLine
+    file <- readFile filepath
+    file2 <- readFile filepath2
+    let inputNode = take 10 $ (shaper . floater . split) file
+    let outputNode = (shaper . floater . split) file
+    let w1 = randMatGen 2 784 100
+    let w2 = randMatGen 4294 100 10
+    let b1 = drop 100 $ xorshift32inf 967
+    let b2 = drop 10 $ xorshift32inf 295
+    let lr = 0.2
+    let act = sigmoid
+    print $ hidden lr (map snd inputNode) w1 w2 b1 b2 act (map snd outputNode)
+
+
+
+randMatGen :: Int -> Int -> Int -> [[Float]]
+randMatGen seed width height =
+                                      let mat =  xorshift32inf seed in
+                                     [ [ mat !! (i*j) | i <- [1..width] ] | j <- [1..height] ]
+
+xorshift32 :: (Num a, Bits a) => a -> a
+xorshift32 seed =
+    let l13seed = seed .^. (seed .<<. 13) in
+    let r17seed = l13seed .^. (l13seed .>>. 17) in
+    let l5seed = r17seed .^. (r17seed .<<. 5) in
+        l5seed .&. 0xFFFFFFFF
+
+xorshift32inf :: Int -> [Float]
+xorshift32inf seed= map ((/ 4294967295) . fromIntegral) $ iterate xorshift32 seed
