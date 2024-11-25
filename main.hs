@@ -238,11 +238,8 @@ mnist :: IO ()
 mnist = do
     putStrLn "input file"
     filepath <- getLine
-   -- putStrLn "output node file"
-   -- filepath2 <- getLine
     ---------------------
     file <- readFile "dataset/mnist_train.csv"
-    file2 <- readFile "dataset/mnist_test.csv"
     --테스트할 때마다 쓰기 귀찮아서 일단 이렇게함
     let input = take 40 $ (shaper . floater . split) file
     let w1 = randMatGen 2 784 100
