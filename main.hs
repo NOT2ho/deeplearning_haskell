@@ -24,13 +24,16 @@ split str
     | Prelude.null str = []
     | otherwise = takeWhile (/=',') str : split (if Prelude.null (dropWhile (/=',') str) then [] else tail (dropWhile (/=',') str))
 
+oneHot :: Int -> Int -> Vec
+oneHot idx max = take (max+1) $ map (fromIntegral . (\i -> if i == idx then 1 else 0)) [0..]
+
 floater :: [String] -> [Float]
 floater (s:trList) = case (readMaybe::String -> Maybe Float) s of
                     Just num -> num : floater trList
                     Nothing -> error "userfault"
 
-shaper :: [Float] -> [(Float, Vec)]
-shaper (f:fs) = ("code : " ++ show f) `trace` (f, take 784 fs) : shaper (drop 784 fs)
+shaper :: [Float] -> [(Vec, Vec)]
+shaper (f:fs) = ("code : " ++ show f) `trace` (oneHot 10 $ round f, take 784 fs) : shaper (drop 784 fs)
 shaper fs = []
 --todo: this may wrong
 
@@ -233,28 +236,29 @@ hidden lr inputNode w1 w2 b1 b2 act outputNode =
 
 mnist :: IO ()
 mnist = do
-    putStrLn "input node file"
+    putStrLn "input file"
     filepath <- getLine
-    putStrLn "output node file"
-    filepath2 <- getLine
+   -- putStrLn "output node file"
+   -- filepath2 <- getLine
+    ---------------------
     file <- readFile "dataset/mnist_train.csv"
     file2 <- readFile "dataset/mnist_test.csv"
-    let inputNode = take 40 $ (shaper . floater . split) file
-    let outputNode = take 10 $  (shaper . floater . split) file2
+    --테스트할 때마다 쓰기 귀찮아서 일단 이렇게함
+    let input = take 40 $ (shaper . floater . split) file
     let w1 = randMatGen 2 784 100
     let w2 = randMatGen 4294 100 10
     let b1 = take 500 $ xorshift32inf 967
     let b2 = take 10 $ xorshift32inf 295
     let lr = 0.05
     let act = sigmoid
-    print $ hidden lr (map snd inputNode) w1 w2 b1 b2 act (map snd outputNode)
+    print $ hidden lr (map snd input) w1 w2 b1 b2 act (map fst input)
 
 
 
 randMatGen :: Int -> Int -> Int -> [[Float]]
 randMatGen seed width height =
                                       let mat =  xorshift32inf seed in
-                                     [ [ mat !! (i*j) | i <- [1..width] ] | j <- [1..height] ]
+                                     [ [ mat !! (i*j) | i <- [1..width] ] | j <- [1..height] ] -- 꼬우면 pull request 보내십시오.
 
 xorshift32 :: (Num a, Bits a) => a -> a
 xorshift32 seed =
